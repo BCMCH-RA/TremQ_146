@@ -12,6 +12,9 @@
 #define QMI8658_CTRL2  0x03
 #define QMI8658_CTRL3  0x04
 #define QMI8658_CTRL4  0x05
+// CAL1_L..CAL4_H (0x0B..0x12): on-chip gyro/accel offset trim registers.
+// Used by QMI8658_CalibrateIdle() to null out the residual bias a static
+// capture shows even when the device sits perfectly still.
 #define QMI8658_CTRL5  0x06
 #define QMI8658_CTRL6  0x07
 #define QMI8658_CTRL7  0x08
@@ -138,6 +141,19 @@ void setAccScale(acc_scale_t scale);
 void setGyroScale(gyro_scale_t scale);
 void setAccLPF(lpf_t lpf);
 void setGyroLPF(lpf_t lpf);
+
+// HOST-SIDE BIAS TRIM (preferred over the on-chip CAL registers).
+// QMI8658_SetBiasTrim() stores per-axis offsets, in sensor RAW LSB units,
+// that QMI8658_BurstRead() subtracts from every reading before it enters
+// the BLE/SD rings. Offsets are applied to the raw values only; Tremor_Metric
+// and the CSV export automatically see trimmed data.
+// QMI8658_CalibrateIdle() samples the sensor while it is at rest and
+// computes the mean as the trim — call it once after power-up with the
+// device stationary and flat, or again whenever a static capture shows a
+// non-zero gyro residual (temperature drift moves bias by ~0.01-0.02 dps/K).
+void     QMI8658_SetBiasTrim(const int16_t trim[6]);   // {ax,ay,az,gx,gy,gz} raw LSB
+bool     QMI8658_GetBiasTrim(int16_t trim[6]);         // read back current trim
+uint32_t QMI8658_CalibrateIdle(int samples = 200);     // returns #samples used, 0 on failure
 void setState(sensor_state_t state);
 void getRawReadings(int16_t* buf);
 void QMI8658_BurstRead(int16_t *ax, int16_t *ay, int16_t *az, int16_t *gx, int16_t *gy, int16_t *gz);

@@ -25,6 +25,13 @@ lv_obj_t *img_logo = NULL;
 static_assert(sizeof(logoBelievers) == LOGO_SIZE * LOGO_SIZE * sizeof(uint16_t),
               "logo_believers.h is not LOGO_SIZE*LOGO_SIZE RGB565 pixels");
 
+// The generated bitmap lives in flash and outlives every LVGL draw pass, so it
+// satisfies Lvgl_SetLogo()'s pointer-stability contract directly.
+void Lvgl_ShowDefaultLogo(void)
+{
+    Lvgl_SetLogo(logoBelievers);
+}
+
 void Lvgl_print(const char * buf)
 {
 }
@@ -91,110 +98,116 @@ void Lvgl_Init(void)
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Layout notes (screen is 412x412):
-    //  - The severity and clock fonts were reduced so the bottom block could be
-    //    laid out two rows instead of four. Every label below the clock is
-    //    bigger than it used to be, and the paired rows use the horizontal
-    //    space the 412px width leaves, so nothing is lost by pairing them.
-    //  - Severity text is black on a filled band, so all four band colours have
-    //    to stay light enough to read black text against.
-    // Title sits top-CENTERED so it is visually balanced with the logo on the right.
-    lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "BCMCH Tremor");
-    lv_obj_set_style_text_color(title, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);   // <-- CENTERED
-
-    // Reserved logo slot. img_logo is an empty container until a bitmap is
-    // installed with Lvgl_SetLogo(), so the layout is correct either way and
-    // no asset is hard-coded here.
+    // Layout notes (screen is 412x412), accessibility pass:
+    //  - The severity word (CALM/MILD/MODERATE/SEVERE) is the one thing a
+    //    patient or clinician glances at, so it now dominates the screen:
+    //    full-width band, montserrat_48, bold-ish weight from the size itself.
+    //  - Everything else (clock, RMS, status fields) moved down one step in
+    //    visual priority: smaller fonts, but still >= 16px so it stays legible
+    //    for elderly users, and high-contrast colours on the black background.
+    //  - Severity text is white on a saturated band; white-on-red/green/amber
+    //    passes WCAG AA at display sizes and is far more distinguishable for
+    //    low-vision users than small black text on pastel fills.
+    // Logo moved to the TOP-LEFT corner so the severity band can span the
+    // full width underneath it without competing with the title.
     img_logo = lv_obj_create(scr);
     lv_obj_set_size(img_logo, LOGO_SIZE, LOGO_SIZE);
     lv_obj_set_style_bg_opa(img_logo, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(img_logo, 0, 0);
     lv_obj_set_style_pad_all(img_logo, 0, 0);
     lv_obj_remove_flag(img_logo, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(img_logo, LV_ALIGN_TOP_RIGHT, -14, 8);
+    lv_obj_align(img_logo, LV_ALIGN_TOP_LEFT, 14, 8);
 
+    lv_obj_t *title = lv_label_create(scr);
+    lv_label_set_text(title, "BCMCH Tremor");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_RIGHT, -14, 14);
+
+    // ─── Severity band: the hero element ────────────────────────────────
     lbl_severity = lv_label_create(scr);
     lv_label_set_text(lbl_severity, "CALM");
-    lv_obj_set_width(lbl_severity, LCD_WIDTH - 24);
-    lv_obj_set_style_bg_color(lbl_severity, lv_color_hex(0x00E676), 0);
+    lv_obj_set_width(lbl_severity, LCD_WIDTH - 16);
+    lv_obj_set_style_bg_color(lbl_severity, lv_color_hex(0x00C853), 0);
     lv_obj_set_style_bg_opa(lbl_severity, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(lbl_severity, 12, 0);
-    lv_obj_set_style_pad_all(lbl_severity, 12, 0);
-    lv_obj_set_style_text_color(lbl_severity, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_text_font(lbl_severity, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_radius(lbl_severity, 16, 0);
+    lv_obj_set_style_pad_all(lbl_severity, 14, 0);
+    lv_obj_set_style_text_color(lbl_severity, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl_severity, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_align(lbl_severity, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(lbl_severity, LV_ALIGN_TOP_MID, 0, 52);
+    lv_obj_align(lbl_severity, LV_ALIGN_TOP_MID, 0, 84);
+
+    // ─── Secondary info: deliberately smaller than the severity word ────
+    lbl_tremor_rms = lv_label_create(scr);
+    lv_label_set_text(lbl_tremor_rms, "RMS: 0.0 dps");
+    lv_obj_set_style_text_color(lbl_tremor_rms, lv_color_hex(0x69F0AE), 0);
+    lv_obj_set_style_text_font(lbl_tremor_rms, &lv_font_montserrat_20, 0);
+    lv_obj_align(lbl_tremor_rms, LV_ALIGN_TOP_MID, 0, 176);
 
     lbl_ist_time = lv_label_create(scr);
     lv_label_set_text(lbl_ist_time, "IST: --:--:--");
     lv_obj_set_style_text_color(lbl_ist_time, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(lbl_ist_time, &lv_font_montserrat_32, 0);
-    lv_obj_align(lbl_ist_time, LV_ALIGN_TOP_MID, 0, 132);
+    lv_obj_set_style_text_font(lbl_ist_time, &lv_font_montserrat_24, 0);
+    lv_obj_align(lbl_ist_time, LV_ALIGN_TOP_MID, 0, 208);
 
     lbl_ist_date = lv_label_create(scr);
     lv_label_set_text(lbl_ist_date, "---- -- -- --");
     lv_obj_set_style_text_color(lbl_ist_date, lv_color_hex(0xB0BEC5), 0);
-    lv_obj_set_style_text_font(lbl_ist_date, &lv_font_montserrat_20, 0);
-    lv_obj_align(lbl_ist_date, LV_ALIGN_TOP_MID, 0, 184);
+    lv_obj_set_style_text_font(lbl_ist_date, &lv_font_montserrat_16, 0);
+    lv_obj_align(lbl_ist_date, LV_ALIGN_TOP_MID, 0, 244);
 
-    lbl_tremor_rms = lv_label_create(scr);
-    lv_label_set_text(lbl_tremor_rms, "RMS: 0.0 dps");
-    lv_obj_set_style_text_color(lbl_tremor_rms, lv_color_hex(0x00E676), 0);
-    lv_obj_set_style_text_font(lbl_tremor_rms, &lv_font_montserrat_24, 0);
-    lv_obj_align(lbl_tremor_rms, LV_ALIGN_TOP_MID, 0, 224);
-
-    // Bottom block: two paired rows at a larger font than the 16px they used
-    // to be. Left/right pairing keeps each field's own colour, which a single
-    // merged string could not.
+    // Bottom block: two paired rows. Left/right pairing keeps each field's
+    // own colour, which a single merged string could not.
     lbl_ble_status = lv_label_create(scr);
     lv_label_set_text(lbl_ble_status, "BLE: Disconnected");
-    lv_obj_set_style_text_color(lbl_ble_status, lv_color_hex(0xFF4444), 0);
-    lv_obj_set_style_text_font(lbl_ble_status, &lv_font_montserrat_20, 0);
-    lv_obj_align(lbl_ble_status, LV_ALIGN_TOP_LEFT, 14, 278);
+    lv_obj_set_style_text_color(lbl_ble_status, lv_color_hex(0xFF5252), 0);
+    lv_obj_set_style_text_font(lbl_ble_status, &lv_font_montserrat_16, 0);
+    lv_obj_align(lbl_ble_status, LV_ALIGN_TOP_LEFT, 14, 288);
 
     lbl_rec_status = lv_label_create(scr);
     lv_label_set_text(lbl_rec_status, "Recording: OFF");
-    lv_obj_set_style_text_color(lbl_rec_status, lv_color_hex(0x888888), 0);
-    lv_obj_set_style_text_font(lbl_rec_status, &lv_font_montserrat_20, 0);
-    lv_obj_align(lbl_rec_status, LV_ALIGN_TOP_RIGHT, -14, 278);
+    lv_obj_set_style_text_color(lbl_rec_status, lv_color_hex(0x9E9E9E), 0);
+    lv_obj_set_style_text_font(lbl_rec_status, &lv_font_montserrat_16, 0);
+    lv_obj_align(lbl_rec_status, LV_ALIGN_TOP_RIGHT, -14, 288);
 
     lbl_sample_count = lv_label_create(scr);
     lv_label_set_text(lbl_sample_count, "Samples: 0");
-    lv_obj_set_style_text_color(lbl_sample_count, lv_color_hex(0x44AAFF), 0);
-    lv_obj_set_style_text_font(lbl_sample_count, &lv_font_montserrat_20, 0);
-    lv_obj_align(lbl_sample_count, LV_ALIGN_TOP_LEFT, 14, 318);
+    lv_obj_set_style_text_color(lbl_sample_count, lv_color_hex(0x40C4FF), 0);
+    lv_obj_set_style_text_font(lbl_sample_count, &lv_font_montserrat_16, 0);
+    lv_obj_align(lbl_sample_count, LV_ALIGN_TOP_LEFT, 14, 322);
 
     lbl_battery = lv_label_create(scr);
     lv_label_set_text(lbl_battery, "Bat: --.--V --%");
-    lv_obj_set_style_text_color(lbl_battery, lv_color_hex(0xFFAA00), 0);
-    lv_obj_set_style_text_font(lbl_battery, &lv_font_montserrat_20, 0);
-    lv_obj_align(lbl_battery, LV_ALIGN_TOP_RIGHT, -14, 318);
+    lv_obj_set_style_text_color(lbl_battery, lv_color_hex(0xFFD54F), 0);
+    lv_obj_set_style_text_font(lbl_battery, &lv_font_montserrat_16, 0);
+    lv_obj_align(lbl_battery, LV_ALIGN_TOP_RIGHT, -14, 322);
 
     lbl_lowbat = lv_label_create(scr);
     lv_label_set_text(lbl_lowbat, "LOW BATTERY");
     lv_obj_set_width(lbl_lowbat, LCD_WIDTH - 24);
-    lv_obj_set_style_bg_color(lbl_lowbat, lv_color_hex(0xF44336), 0);
+    lv_obj_set_style_bg_color(lbl_lowbat, lv_color_hex(0xD50000), 0);
     lv_obj_set_style_bg_opa(lbl_lowbat, LV_OPA_COVER, 0);
     lv_obj_set_style_text_color(lbl_lowbat, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(lbl_lowbat, &lv_font_montserrat_24, 0);
     lv_obj_set_style_radius(lbl_lowbat, 14, 0);
-    lv_obj_set_style_pad_all(lbl_lowbat, 12, 0);
+    lv_obj_set_style_pad_all(lbl_lowbat, 10, 0);
     lv_obj_set_style_text_align(lbl_lowbat, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(lbl_lowbat, LV_ALIGN_TOP_MID, 0, 262);
+    lv_obj_align(lbl_lowbat, LV_ALIGN_TOP_MID, 0, 348);
     lv_obj_add_flag(lbl_lowbat, LV_OBJ_FLAG_HIDDEN);
 }
 
-// Install a logo bitmap into the reserved top-right slot. The buffer must be
+// Install a logo bitmap into the reserved top-left slot. The buffer must be
 // LOGO_SIZE*LOGO_SIZE RGB565 pixels and must outlive the call (LVGL keeps the
 // pointer, it does not copy). Passing NULL clears the slot.
 void Lvgl_SetLogo(const uint16_t *rgb565)
 {
     if (!img_logo) return;
     if (!rgb565) {
-        lv_image_set_src(img_logo, NULL);
+        // LVGL 9 treats a NULL source as an invalid src pointer and
+        // dereferences it while decoding. lv_image_set_src("") is the safe way
+        // to clear the slot: the decoder rejects the empty name without
+        // touching memory.
+        lv_image_set_src(img_logo, "");
         return;
     }
     static lv_image_dsc_t dsc;

@@ -79,16 +79,48 @@ bool SD_Logger_IsOpen(void)
   return sdLoggerOpen;
 }
 
+// ─── Write-through RAM buffer ────────────────────────────────────
+// Calling println() per line means one FATFS write (and often a flash-page
+// program + wear-level cycle) for every ~60-byte sample row at 200 Hz. That
+// both hammers the card's endurance and produces periodic multi-hundred-ms
+// stalls inside SD_MMC, which back up the sdRing until it drops samples.
+// Instead we coalesce lines into a 4 KB staging buffer and hand it to the
+// card in one write when it fills or on an explicit flush. A full-size write
+// completes in a fraction of the time of 64 tiny ones, so ring drain keeps up
+// and drop-oldest events become rare.
+#define SD_LINE_BUF_BYTES 4096
+static char   s_lineBuf[SD_LINE_BUF_BYTES];
+static size_t s_lineBufLen = 0;
+
+static void sdLineBufDrain(void)
+{
+  if (s_lineBufLen == 0) return;
+  if (sdLoggerOpen && sdLogFile) {
+    sdLogFile.write((const uint8_t *)s_lineBuf, s_lineBufLen);
+  }
+  s_lineBufLen = 0;   // on write failure we lose this chunk but keep going:
+                      // retrying a dead card every line would stall the task
+}
+
 void SD_Logger_Write(const char *line)
 {
   if (!sdLoggerOpen || !sdLogFile) return;
-  sdLogFile.println(line);
+  size_t len = strlen(line);
+  if (len + 2 > sizeof(s_lineBuf)) return;     // pathological input, skip
+  if (s_lineBufLen + len + 2 > sizeof(s_lineBuf)) {
+    sdLineBufDrain();                          // fill the buffer with whole lines only
+  }
+  memcpy(s_lineBuf + s_lineBufLen, line, len);
+  s_lineBufLen += len;
+  s_lineBuf[s_lineBufLen++] = '\r';
+  s_lineBuf[s_lineBufLen++] = '\n';
 }
 
 void SD_Logger_Flush(void)
 {
+  sdLineBufDrain();                            // push staged rows to the card...
   if (!sdLoggerOpen || !sdLogFile) return;
-  sdLogFile.flush();
+  sdLogFile.flush();                           // ...then commit them to media
 }
 
 void SD_Logger_Close(void)

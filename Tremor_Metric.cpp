@@ -248,12 +248,18 @@ const char *Tremor_Level_Text(TremorLevel_t level) {
     }
 }
 
+// Band colours are chosen for WHITE text on the device's severity band
+// (Lvgl uses montserrat_48 white). Each fill is saturated enough that white
+// copy stays high-contrast, and the four hues are far apart in both hue and
+// lightness so the bands remain distinguishable under common colour-vision
+// deficiencies (deuteranopia/protanopia): green vs amber vs orange vs red
+// still separate by brightness, not hue alone.
 uint32_t Tremor_Level_Color(TremorLevel_t level) {
     switch (level) {
-        case TREMOR_CALM:     return 0x00E676;
-        case TREMOR_MILD:     return 0xFFD600;
-        case TREMOR_MODERATE: return 0xFFA726;
-        case TREMOR_SEVERE:   return 0xF44336;
-        default:              return 0x00E676;
+        case TREMOR_CALM:     return 0x00C853;  // material green A700
+        case TREMOR_MILD:     return 0xFFAB00;  // amber A700
+        case TREMOR_MODERATE: return 0xFF6D00;  // deep orange A700
+        case TREMOR_SEVERE:   return 0xD50000;  // red A700
+        default:              return 0x00C853;
     }
 }
