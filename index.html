@@ -6,31 +6,39 @@
 <title>IMU BLE Streamer - Waveshare ESP32-S3</title>
 <style>
 :root {
-  --bg: #0b0f14;
-  --panel: #151b23;
-  --panel2: #1d2631;
-  --border: #2a3a4a;
-  --text: #dce6f0;
-  --text-dim: #7d8b99;
+  /* Accessibility pass for elderly / tremor patients:
+     - near-black background (low luminance, less glare/eye strain)
+     - off-white text (#eaf2fa) instead of pure white to halve perceived glare
+       while keeping a contrast ratio > 13:1 against the background
+     - base font raised to 18px; nothing renders below ~15px anywhere
+     - larger touch targets (buttons >= 56px tall) for unsteady fingers */
+  --bg: #06090d;
+  --panel: #101720;
+  --panel2: #1a2430;
+  --border: #3a4d61;
+  --text: #eaf2fa;
+  --text-dim: #aebccc;
   --accent: #00e58f;
   --accent-dim: #0fa36b;
-  --danger: #ff4d4d;
-  --warning: #ffb020;
-  --info: #3aa0ff;
+  --danger: #ff6b6b;
+  --warning: #ffc247;
+  --info: #64b5ff;
   --font-mono: 'SF Mono', 'Cascadia Code', Consolas, 'Roboto Mono', monospace;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 18px; }
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-mono);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   min-height: 100vh;
-  padding: 20px;
+  padding: 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  line-height: 1.5;
 }
-.container { max-width: 1000px; width: 100%; }
+.container { max-width: 1100px; width: 100%; }
 header {
   display: flex;
   justify-content: space-between;
@@ -40,72 +48,75 @@ header {
   margin-bottom: 20px;
 }
 header h1 {
-  font-size: 20px;
+  font-size: 1.9rem;
   color: var(--accent);
   letter-spacing: 1px;
-  font-weight: 700;
+  font-weight: 800;
 }
 .conn-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  border: 1px solid var(--border);
+  gap: 10px;
+  padding: 10px 18px;
+  border-radius: 24px;
+  border: 2px solid var(--border);
   background: var(--panel);
-  font-size: 13px;
+  font-size: 1rem;
+  font-weight: 700;
 }
-.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); }
-.dot.online { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.dot { width: 14px; height: 14px; border-radius: 50%; background: var(--text-dim); }
+.dot.online { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 .dot.offline { background: var(--danger); }
 .grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
-@media (min-width: 860px) { .grid { grid-template-columns: 340px 1fr; } }
+@media (min-width: 860px) { .grid { grid-template-columns: 380px 1fr; } }
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 14px;
+  padding: 20px;
 }
 .panel h2 {
-  font-size: 13px;
+  font-size: 1.05rem;
   text-transform: uppercase;
   letter-spacing: 1.5px;
-  color: var(--text-dim);
+  color: var(--text);
   margin-bottom: 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--border);
   padding-bottom: 10px;
 }
 .btn {
   width: 100%;
-  padding: 12px;
+  min-height: 56px;          /* large target: usable with a tremor */
+  padding: 14px 18px;
   border: none;
-  border-radius: 8px;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 600;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 1.15rem;
+  font-weight: 700;
   cursor: pointer;
   transition: filter 0.15s, transform 0.05s;
   color: #06120c;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
-.btn:hover { filter: brightness(1.1); }
+.btn:hover { filter: brightness(1.15); }
+.btn:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
 .btn:active { transform: scale(0.98); }
 .btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: not-allowed; }
 .btn-connect { background: var(--accent); }
-.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger { background: var(--danger); color: #1a0000; }
 .btn-warn { background: var(--warning); }
 .btn-info { background: var(--info); color: #04121f; }
-.btn-ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+.btn-ghost { background: var(--panel2); color: var(--text); border: 2px solid var(--border); }
 
 .stat-row {
   display: flex;
   justify-content: space-between;
-  padding: 8px 0;
+  padding: 10px 0;
   border-bottom: 1px dashed var(--border);
-  font-size: 13px;
+  font-size: 1rem;
 }
 .stat-row span:first-child { color: var(--text-dim); }
-.stat-row span:last-child { font-weight: 600; }
+.stat-row span:last-child { font-weight: 700; color: var(--text); }
 .stat-row .good { color: var(--accent); }
 .stat-row .bad { color: var(--danger); }
 .stat-row .warn { color: var(--warning); }
@@ -118,36 +129,36 @@ header h1 {
 }
 .ax-val, .ay-val, .az-val, .gx-val, .gy-val, .gz-val {
   flex: 1;
-  min-width: 130px;
+  min-width: 150px;
   background: var(--panel2);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 10px;
+  padding: 14px;
   text-align: center;
   border: 1px solid var(--border);
 }
-.val-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; }
-.val-num { font-size: 20px; font-weight: 700; margin-top: 4px; }
-.val-unit { font-size: 11px; color: var(--text-dim); margin-left: 4px; }
+.val-label { font-size: 0.95rem; color: var(--text-dim); text-transform: uppercase; font-weight: 600; }
+.val-num { font-size: 1.7rem; font-weight: 800; margin-top: 6px; font-family: var(--font-mono); }
+.val-unit { font-size: 0.9rem; color: var(--text-dim); margin-left: 4px; }
 
-#sparkline { width: 100%; height: 180px; background: var(--panel2); border-radius: 8px; border: 1px solid var(--border); }
+#sparkline { width: 100%; height: 200px; background: var(--panel2); border-radius: 10px; border: 1px solid var(--border); }
 
-.footer { margin-top: 16px; text-align: center; font-size: 11px; color: var(--text-dim); }
+.footer { margin-top: 16px; text-align: center; font-size: 0.9rem; color: var(--text-dim); }
 #logArea {
   background: var(--panel2);
-  border-radius: 8px;
-  padding: 10px;
-  font-size: 11px;
-  height: 100px;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.95rem;
+  height: 140px;
   overflow-y: auto;
   color: var(--text-dim);
   margin-top: 10px;
   border: 1px solid var(--border);
 }
-.log-line { margin: 2px 0; }
+.log-line { margin: 3px 0; }
 .log-line.err { color: var(--danger); }
 .log-line.warn { color: var(--warning); }
 .log-line.ok { color: var(--accent); }
-.progress { height: 4px; background: var(--panel); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.progress { height: 8px; background: var(--panel); border-radius: 4px; margin-top: 6px; overflow: hidden; }
 .progress > div { height: 100%; width: 0; background: var(--accent); transition: width 0.1s; }
 </style>
 </head>
@@ -178,7 +189,7 @@ header h1 {
         <div style="height: 10px"></div>
         <h2>SD Sessions (on device)</h2>
         <button class="btn btn-info" id="btnList" disabled>Refresh Session List</button>
-        <select id="sessSelect" style="width:100%;padding:10px;margin:0 0 8px 0;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px;font-family:var(--font-mono);font-size:13px;" disabled></select>
+        <select id="sessSelect" style="width:100%;min-height:48px;padding:12px;margin:0 0 8px 0;background:var(--panel2);color:var(--text);border:2px solid var(--border);border-radius:10px;font-family:inherit;font-size:1rem;" disabled></select>
         <button class="btn btn-ghost" id="btnDl" disabled>Download Session from Device</button>
         <div class="progress"><div id="dlBar"></div></div>
       </div>
@@ -193,6 +204,7 @@ header h1 {
         <div class="stat-row"><span>Packets received</span><span id="stPackets">0</span></div>
         <div class="stat-row"><span>Packets lost</span><span id="stLost" class="good">0</span></div>
         <div class="stat-row"><span>Samples dropped on device</span><span id="stDropped" class="good">0</span></div>
+        <div class="stat-row"><span>Timestamp gaps (client-detected)</span><span id="stGaps" class="good">0</span></div>
         <div class="stat-row"><span>Packet loss %</span><span id="stLossPct" class="good">0.00</span></div>
         <div class="stat-row"><span>Sample rate</span><span id="stRate">0 Hz</span></div>
         <div class="stat-row"><span>MTU</span><span id="stMTU">--</span></div>
@@ -216,7 +228,7 @@ header h1 {
           <div class="gz-val"><div class="val-label">Gyro Z</div><div class="val-num"><span id="gyroZ">0.0</span><span class="val-unit">dps</span></div></div>
         </div>
         <canvas id="sparkline" width="600" height="180"></canvas>
-        <div style="text-align:center; font-size:11px; color:var(--text-dim); margin-top:6px;">
+        <div style="text-align:center; font-size:0.95rem; color:var(--text-dim); margin-top:6px;">
           Rolling plot (separate scales): <span style="color:var(--info)">AccX</span> /
           <span style="color:var(--accent)">AccY</span> / <span style="color:var(--warning)">AccZ</span>
           &nbsp;·&nbsp; <span style="color:var(--danger)">GyroX</span>
@@ -306,6 +318,18 @@ const DL_STALL_MS = 5000;
 
 let lastRateTime = 0, samplesAtRate = 0, currentRate = 0;
 
+// Device-timestamp stream health. The drop counter only covers the BLE ring;
+// it cannot see a sample lost between two notifications on the link, nor a
+// stalled producer. Measuring gaps in the device's own ts_ms clock catches
+// both: at the nominal 200 Hz cadence any inter-sample gap > 15 ms is a
+// missed sample (or worse), and we count them client-side so a "clean"
+// dropped=0 readout can no longer hide a holey stream.
+const NOMINAL_PERIOD_MS = 5;
+const GAP_THRESHOLD_MS  = 15;
+let lastSampleTsMs = null;    // previous sample's device timestamp
+let gapEvents = 0;            // # of gap detections this session
+let gapSamples = 0;           // estimated samples missing inside those gaps
+
 // Sparkline data
 const HIST_LEN = 240;
 const histData = { ax: [], ay: [], az: [], gx: [] };
@@ -393,10 +417,19 @@ async function connect() {
     await fileChar.startNotifications();
     log('Notifications enabled (IMU + file)', 'ok');
 
-    try {
-      const mtur = await server.getMTU();
-      setStat('stMTU', mtur || '--');
-    } catch (e) { setStat('stMTU', '--'); }
+    // Web Bluetooth exposes no MTU API at all (server.getMTU() does not exist;
+    // exmt is Web Serial). The only reliable client-side bound is the largest
+    // notification payload actually observed: ATT adds 3 bytes of header, so
+    // negotiated MTU >= maxPayload + 3. Update this whenever a packet arrives.
+    function updateMtuStat(payloadLen) {
+      if (typeof payloadLen === 'number' && payloadLen > 0) {
+        const est = payloadLen + 3;
+        const prev = parseInt(document.getElementById('stMTU').textContent, 10);
+        if (!(prev > 0 && prev >= est)) setStat('stMTU', est);
+      } else if (document.getElementById('stMTU').textContent === '--') {
+        setStat('stMTU', '--');
+      }
+    }
 
     await readStatus();
     await syncTime();
@@ -430,6 +463,12 @@ function resetStreamStats() {
   totalSamples = 0;
   lostPackets = 0;
   lostSamples = 0;
+  // Gap accounting is per-session too: the device's ts_ms clock survives
+  // reconnects but seq/drops restart, so a stale baseline would flag the
+  // session boundary itself as one giant "gap".
+  lastSampleTsMs = null;
+  gapEvents = 0;
+  gapSamples = 0;
   histData.ax.length = 0; histData.ay.length = 0;
   histData.az.length = 0; histData.gx.length = 0;
 }
@@ -581,6 +620,22 @@ function handleIMUData(event) {
     // and the drop is invisible in the packet.
     const ts = tsMs + relMs;
 
+    // Gap detection on the device clock (32-bit wrap-safe via modular diff).
+    // A gap of exactly NOMINAL_PERIOD_MS is normal cadence; anything past
+    // GAP_THRESHOLD_MS means samples vanished somewhere upstream of us.
+    if (lastSampleTsMs !== null) {
+      let d = (ts - lastSampleTsMs) >>> 0;
+      if (d > GAP_THRESHOLD_MS && d < 60000) {   // ignore session restarts
+        gapEvents++;
+        gapSamples += Math.max(1, Math.round(d / NOMINAL_PERIOD_MS) - 1);
+        if (gapEvents <= 5 || gapEvents % 100 === 0) {
+          log(`Timestamp gap: ${d} ms (~${Math.round(d / NOMINAL_PERIOD_MS)} samples missing), ` +
+              `event #${gapEvents}`, 'warn');
+        }
+      }
+    }
+    lastSampleTsMs = ts;
+
     const af = ax / ACCEL_LSB_PER_G, ag = ay / ACCEL_LSB_PER_G, ah = az / ACCEL_LSB_PER_G;
     const gf = gx / GYRO_LSB_PER_DPS, gg = gy / GYRO_LSB_PER_DPS, gh = gz / GYRO_LSB_PER_DPS;
 
@@ -609,6 +664,8 @@ function handleIMUData(event) {
   setStat('stLost', lostPackets.toLocaleString());
   setStat('stDropped', lostSamples.toLocaleString(),
           lostSamples > 0 ? 'warn' : 'good');
+  setStat('stGaps', `${gapEvents} (~${gapSamples} samples)`,
+          gapEvents > 0 ? 'warn' : 'good');
   setStat('stRate', currentRate + ' Hz');
   const lossPct = totalPackets > 0 ? (lostPackets / (lostPackets + totalPackets) * 100) : 0;
   setStat('stLossPct', lossPct.toFixed(2) + ' %',

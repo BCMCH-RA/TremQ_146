@@ -36,3 +36,7 @@ uint32_t Lvgl_Get_LastTouchMs(void);
 // slot. The buffer must be static or otherwise outlive the call, because LVGL
 // stores the pointer rather than copying. NULL clears the slot.
 void Lvgl_SetLogo(const uint16_t *rgb565);
+
+// Convenience: install the compiled-in logoBelievers bitmap. Call after
+// Lvgl_Init(); without this the logo slot stays empty by design.
+void Lvgl_ShowDefaultLogo(void);

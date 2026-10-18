@@ -29,6 +29,9 @@ Ring pushes report failure; failures are counted, never silently eaten.
 #include <NimBLEDevice.h>
 #include <stdarg.h>
 #include <time.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_attr.h"
 #include "Display_SPD2010.h"
 #include "Gyro_QMI8658.h"
 #include "LVGL_Driver.h"
@@ -138,7 +141,9 @@ typedef struct {
     volatile uint16_t head;
     volatile uint16_t tail;
     volatile uint16_t count;
-    volatile uint32_t drops;      // cumulative, never reset by ringClear
+    volatile uint32_t drops;      // reset by ringClear() at session start, so it
+                                  // stays consistent with the seq restart in the
+                                  // packet header (see hdr.dropped)
     SemaphoreHandle_t mutex;
 } RingBuffer;
 
@@ -170,16 +175,23 @@ static bool ringPush(RingBuffer *r, const SampleEntry *s) {
 
 // Must actually clear: a silent no-op here would let pre-session samples leak
 // into a new recording, so a contended attempt is retried rather than ignored.
-static bool ringClear(RingBuffer *r) {
+// dropsReset returns the cumulative drop count that was discarded (or 0 if the
+// clear failed), so session-scoped counters can stay consistent with it.
+static uint32_t ringClear(RingBuffer *r) {
     for (int attempt = 0; attempt < 10; attempt++) {
         if (xSemaphoreTake(r->mutex, pdMS_TO_TICKS(RING_MUTEX_WAIT_MS)) == pdTRUE) {
+            uint32_t discarded = r->drops;
             r->head = 0; r->tail = 0; r->count = 0;
+            r->drops = 0;   // reset with the ring: bleSeq restarts at 0 on every
+                            // session start, and hdr.dropped reports this counter
+                            // — leaving it cumulative made a fresh session show a
+                            // bogus ~65 k jump in the client's drop display.
             xSemaphoreGive(r->mutex);
-            return true;
+            return discarded;
         }
     }
     printf("ringClear: mutex unavailable\r\n");
-    return false;
+    return 0;
 }
 
 static bool ringPop(RingBuffer *r, SampleEntry *s) {
@@ -248,8 +260,20 @@ static uint32_t rtcEpochCache = RTC_EPOCH_UNSET;
 static uint32_t rtcEpochMillis = 0;
 
 // Epoch requested by CMD_SYNC_TIME, applied by displayTask. 0xFFFFFFFF is the
-// RTC_EPOCH_UNSET sentinel, so it doubles as "nothing pending".
+// RTC_EPOCH_UNSET sentinel, so it doubles as "nothing pending". Written by the
+// NimBLE host task and read/cleared by displayTask — a plain 32-bit volatile
+// access is atomic on Xtensa, but the take/restore sequence below must stay
+// interrupt-safe: never split the read and the clear across tasks or a sync
+// arriving in between would be silently swallowed.
 static volatile uint32_t rtcSetEpoch = RTC_EPOCH_UNSET;
+static portMUX_TYPE rtcSetEpochMux = portMUX_INITIALIZER_UNLOCKED;
+#define RTC_SET_EPOCH_TAKE() ({ \
+    uint32_t _v = RTC_EPOCH_UNSET; \
+    taskENTER_CRITICAL(&rtcSetEpochMux); \
+    _v = rtcSetEpoch; \
+    if (_v != RTC_EPOCH_UNSET) rtcSetEpoch = RTC_EPOCH_UNSET; \
+    taskEXIT_CRITICAL(&rtcSetEpochMux); \
+    _v; })
 
 // Display update
 static char dispIST[32] = "IST: --:--:--";
@@ -744,6 +768,17 @@ static void bleTask(void *pvParameters) {
     static SampleEntry batch[IMU_SAMPLES_PER_PACKET];
     TickType_t xLastWake = xTaskGetTickCount();
     uint8_t sinceStats = 0;
+    // Adaptive drain pacing. At the negotiated-MTU full size (16 samples) an
+    // 80 ms tick is correct: 200 Hz production means exactly one full packet
+    // accumulates per tick, and 12.5 notifications/s is a rate every phone can
+    // service. But when the peer MTU is small (Chrome/Android often settle at
+    // 185 -> 12 samples, or even less), waiting a whole 80 ms to emit a
+    // shorter packet caps delivery below the production rate and the ring
+    // starts dropping. So: whenever a partial packet is flushed early, shorten
+    // the next wait proportionally to its fill level, and restore the full
+    // 80 ms once packets are full again. Bounded to >=20 ms so we never go
+    // above ~50 notifications/s regardless of what the MTU allows.
+    TickType_t wakePeriod = pdMS_TO_TICKS(80);
     while (1) {
         if (bleConnected && (streamArmed || recording) && pImuChar) {
             // Drain fully and emit as many packets as the backlog needs.
@@ -781,15 +816,31 @@ static void bleTask(void *pvParameters) {
                         if (++sent == maxPkt) break;   // keep the backlog
                     }
                 }
-                if (count > 0 && sent < maxPkt) sendImuPacket(batch, count);
+                if (count > 0 && sent < maxPkt) {
+                    sendImuPacket(batch, count);
+                    // Partial flush: this tick delivered fewer samples than a
+                    // full packet holds, i.e. perPkt*12.5/s < 200 samples/s of
+                    // production. Pace proportionally faster so the smaller
+                    // packets still keep up; a 12/16 fill gives 80*12/16=60 ms.
+                    wakePeriod = pdMS_TO_TICKS(80U * count / perPkt);
+                    if (wakePeriod < pdMS_TO_TICKS(20)) wakePeriod = pdMS_TO_TICKS(20);
+                } else if (sent > 0 && count == 0) {
+                    // Only full packets went out this tick — the current
+                    // period is keeping up, stop accelerating.
+                    wakePeriod = pdMS_TO_TICKS(80);
+                }
+                // (sent==0: nothing in the ring yet — hold the current period.)
             }
+        } else {
+            wakePeriod = pdMS_TO_TICKS(80);   // idle: stats cadence unchanged
         }
-        // 80 ms, not 40 ms: the ring only refills at 200 Hz, so a 40 ms tick
-        // could never accumulate the 16 samples a full packet needs and the
+        // Baseline 80 ms, not 40 ms: the ring only refills at 200 Hz, so a 40 ms
+        // tick could never accumulate the 16 samples a full packet needs and the
         // device was emitting ~34 notifications/s instead of 12.5. Over-producing
         // notifications is what exhausted the NimBLE host buffer pool, so pace
         // the drain to the packet size rather than assuming batching happens.
-        vTaskDelayUntil(&xLastWake, pdMS_TO_TICKS(80));
+        // When the MTU forces short packets this is scaled down adaptively above.
+        vTaskDelayUntil(&xLastWake, wakePeriod);
         // One self-contained line per second. A single pasted line answers the
         // whole question: armed=0 means the CCCD was never written, rec=1 means
         // the app sent 0x01, pkt_sent=0 means notifications are not being
@@ -889,10 +940,11 @@ static void displayTask(void *pvParameters) {
             lastRtc = now;
             // Deferred RTC write requested by a BLE CMD_SYNC_TIME. The I2C
             // bus is shared with the gyro and touch driver, so this must not
-            // run in the NimBLE host task.
-            if (rtcSetEpoch != RTC_EPOCH_UNSET) {
-                uint32_t want = rtcSetEpoch;
-                rtcSetEpoch = RTC_EPOCH_UNSET;
+            // run in the NimBLE host task. Take() clears the pending value
+            // atomically so a sync arriving during the I2C write is kept for
+            // the next pass instead of being lost.
+            uint32_t want = RTC_SET_EPOCH_TAKE();
+            if (want != RTC_EPOCH_UNSET) {
                 PCF85063_SetFromEpoch(want);
                 printf("RTC written from BLE sync: %lu\n", (unsigned long)want);
             }
@@ -1000,6 +1052,7 @@ void setup()
     }
     LCD_Init();
     Lvgl_Init();
+    Lvgl_ShowDefaultLogo();   // fill the reserved top-right logo slot
     if (!ringInit(&bleRing) || !ringInit(&sdRing)) {
         printf("FATAL: ring mutex alloc failed\n");
         return;
@@ -1024,6 +1077,15 @@ void setup()
         !startTask(dlTask,      "DL",  8192, 3, 0)) {
         printf("FATAL: not all tasks running, data will be lost\n");
     }
+    // One-shot gyro bias trim from a ~0.5 s stationary window. This runs here,
+    // AFTER the IMU task has started but before any client can connect and
+    // arm streaming — so it never competes with a live recording. The device
+    // must be at rest during boot for this to mean anything; if it is being
+    // moved, the built-in outlier rejection simply rejects most samples and
+    // the previous trim (zeros) stays in place. A static capture that showed
+    // ~-0.75/-0.66/+0.20 dps of residual rate is exactly what this removes.
+    vTaskDelay(pdMS_TO_TICKS(100));          // let sensor ODR settle first
+    QMI8658_CalibrateIdle(100);              // ~0.5 s @ 5 ms cadence
     printf("All tasks started\n");
 }
 
@@ -1069,6 +1131,18 @@ void loop() {
                 // Grace period so the LOW BATTERY warning is visible before power cut
                 if (now - critSince >= 10000) {
                     printf("BAT: %.2fV shutting down\n", batVolts);
+                    // Power loss without a FAT close corrupts the CSV tail, so
+                    // drain/close the recorder first. This runs in loop(), not
+                    // in the NimBLE host task, so direct SD I/O is safe here.
+                    if (recording) {
+                        recording = false;
+                        SampleEntry e;
+                        while (ringPop(&sdRing, &e)) { /* drain */ }
+                        if (SD_Logger_IsOpen()) {
+                            SD_Logger_Flush();
+                            SD_Logger_Close();
+                        }
+                    }
                     Shutdown();
                 }
             } else {

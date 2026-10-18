@@ -81,7 +81,11 @@ uint32_t PCF85063_GetEpoch(void)
     t.tm_min = datetime.minute;
     t.tm_sec = datetime.second;
     t.tm_isdst = 0;
-    time_t epoch = mktime(&t);
+    // The RTC is programmed from a UTC epoch (see PCF85063_SetFromEpoch), so
+    // the calendar fields must be decoded as UTC. timegm() round-trips exactly
+    // with gmtime(); using mktime()/localtime() here would make every sync
+    // shift the clock by the local timezone offset. ESP-IDF provides timegm().
+    time_t epoch = timegm(&t);
     return (uint32_t)epoch;
 }
 
@@ -89,9 +93,13 @@ void PCF85063_SetFromEpoch(uint32_t epoch)
 {
     if (epoch == RTC_EPOCH_UNSET) return;
     time_t rawtime = (time_t)epoch;
-    struct tm *ti = localtime(&rawtime);
+    // Store UTC calendar fields in the chip; PCF85063_GetEpoch decodes them
+    // back with timegm(), so the epoch survives a sync/read cycle unchanged
+    // regardless of the device's TZ setting.
+    struct tm tm_utc;
+    struct tm *ti = gmtime_r(&rawtime, &tm_utc);
     if (!ti) {
-        printf("RTC set failed: localtime(%lu) returned NULL\r\n", (unsigned long)epoch);
+        printf("RTC set failed: gmtime(%lu) returned NULL\r\n", (unsigned long)epoch);
         return;
     }
     datetime_t dt;

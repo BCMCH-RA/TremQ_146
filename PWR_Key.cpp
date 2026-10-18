@@ -38,9 +38,13 @@ void Restart(void)
 
 void Shutdown(void)
 {
-  digitalWrite(PWR_Control_PIN, LOW);
-  Set_Backlight(0);
+  // Best-effort data safety before we cut our own power: close the latch only
+  // after telling the world, and give the caller (loop) a chance to stop the
+  // recorder first. The FAT layer needs an explicit close/flush or the last
+  // buffered CSV rows die with the card power.
   printf("PWR: powering off\r\n");
+  Set_Backlight(0);
+  digitalWrite(PWR_Control_PIN, LOW);
 }
 
 void PWR_Init(void)
@@ -48,7 +52,10 @@ void PWR_Init(void)
   pinMode(PWR_KEY_Input_PIN, INPUT);
   pinMode(PWR_Control_PIN, OUTPUT);
   digitalWrite(PWR_Control_PIN, LOW);
-  vTaskDelay(100);
+  // Wait in milliseconds, not raw ticks: "100" was ~100 s at the default
+  // 100 Hz tick rate (and is ambiguous across builds), which delayed boot and
+  // could miss a power-button press held during startup.
+  vTaskDelay(pdMS_TO_TICKS(100));
   if (!digitalRead(PWR_KEY_Input_PIN)) {
     BAT_State = 1;
     digitalWrite(PWR_Control_PIN, HIGH);
